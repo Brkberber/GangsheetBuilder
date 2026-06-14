@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Gangsheet Builder</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f4f6f8;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #2b3e50;
+            min-height: 100vh;
+        }
+        .navbar-brand {
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: #1d3557 !important;
+        }
+        .card {
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        .upload-box {
+            border: 3px dashed #1d3557;
+            background-color: #fff;
+            padding: 50px 20px;
+            border-radius: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            position: relative;
+        }
+        .upload-box.dragover {
+            background-color: #e1e7ee !important;
+            border-color: #457b9d !important;
+            transform: scale(1.02);
+        }
+        .badge-transparent { background-color: #2a9d8f; color: white;}
+        .badge-opaque { background-color: #e63946; color: white;}
+        .btn-delete {
+            color: #e63946;
+            background: none;
+            border: 1px solid #e63946;
+            border-radius: 6px;
+            padding: 4px 10px;
+            transition: 0.2s;
+        }
+        .btn-delete:hover {
+            color: white;
+            background-color: #e63946;
+        }
+        .img-thumbnail-preview {
+            width: 60px;
+            height: 60px;
+            object-fit: contain;
+            border-radius: 6px;
+            background-color: #e9ecef;
+            border: 1px solid #dee2e6;
+            padding: 2px;
+        }
+    </style>
+</head>
+<body>
+
+<nav class="navbar navbar-light bg-white border-bottom py-3">
+    <div class="container">
+        <span class="navbar-brand mb-0 h1">📐 SMART GANGSHEET BUILDER</span>
+    </div>
+</nav>
+
+<div class="container my-5">
+    <div class="row g-4">
+        <div class="col-lg-4">
+            <div class="card p-4 mb-4">
+                <h5 class="fw-bold mb-3">1. Sheet Canvas Settings</h5>
+                <div class="mb-3">
+                    <label class="form-label">Width (Inches)</label>
+                    <input type="number" id="sheetWidth" class="form-control" value="22" readonly>
+                    <div class="form-text">Standard fixed commercial width.</div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Max Height Limit (Inches)</label>
+                    <input type="number" id="maxHeight" class="form-control" value="250">
+                </div>
+            </div>
+
+            <div class="card p-4">
+                <h5 class="fw-bold mb-3">3. Execution</h5>
+                <button class="btn btn-primary btn-lg w-100 fw-bold" id="generateBtn" disabled style="background-color: #1d3557; border: none;">
+                    ⚡ Build Smart Gangsheet
+                </button>
+            </div>
+        </div>
+
+        <div class="col-lg-8">
+            <div class="upload-box mb-4" id="dropZone" onclick="document.getElementById('fileInput').click()">
+                <h4 class="fw-bold text-muted">Drag & Drop Designs Here</h4>
+                <p class="text-muted mb-0">or click to browse your files (PNG, JPG, TIFF)</p>
+                <input type="file" id="fileInput" multiple accept="image/*" class="d-none">
+            </div>
+
+            <div id="resultsCard" class="card p-4 d-none mb-4 text-center">
+                <h5 class="fw-bold text-success mb-3">🎉 Output Success</h5>
+                <div class="bg-light p-3 rounded mb-3">
+                    <h6 class="text-secondary fw-bold mb-1">Total Size (Inch)</h6>
+                    <h4 id="outInch" class="fw-bold text-primary mb-0">-</h4>
+                </div>
+                <a id="downloadBtn" href="#" class="btn btn-success btn-lg w-100 fw-bold shadow-sm">📥 Download Print-Ready File</a>
+            </div>
+
+            <div class="card p-4">
+                <h5 class="fw-bold mb-3">2. Loaded Designs Configuration</h5>
+                <div id="itemsContainer">
+                    <p class="text-muted">No files loaded yet. Please upload files above to configure dimensions.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let uploadedFilesCache = [];
+
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+window.addEventListener('dragover', function(e) { e.preventDefault(); }, false);
+window.addEventListener('drop', function(e) { e.preventDefault(); }, false);
+
+dropZone.addEventListener('dragenter', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('dragover'); });
+
+dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) { uploadFiles(files); }
+});
+
+fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) { uploadFiles(e.target.files); }
+});
+
+async function uploadFiles(files) {
+    if (files.length === 0) return;
+
+    if (uploadedFilesCache.length > 0) {
+        uploadedFilesCache.forEach((file, index) => {
+            const widthEl = document.getElementById(`width_${index}`);
+            const heightEl = document.getElementById(`height_${index}`);
+            const qtyEl = document.getElementById(`qty_${index}`);
+
+            if (widthEl && heightEl && qtyEl) {
+                uploadedFilesCache[index].current_w = parseFloat(widthEl.value) || file.orig_w_inch;
+                uploadedFilesCache[index].current_h = parseFloat(heightEl.value) || file.orig_h_inch;
+                uploadedFilesCache[index].quantity = parseInt(qtyEl.value) || 1;
+            }
+        });
+    }
+
+    const container = document.getElementById('itemsContainer');
+    const loadingDiv = document.createElement('div');
+    loadingDiv.id = "tempLoading";
+    loadingDiv.className = "text-center p-3 border rounded mb-3 bg-light";
+    loadingDiv.innerHTML = '<div class="spinner-border spinner-border-sm text-primary" role="status"></div><span class="ms-2 text-muted">Processing new files...</span>';
+    container.appendChild(loadingDiv);
+
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+        formData.append('files[]', files[i]);
+    }
+
+    try {
+        const res = await fetch('/upload-files', { method: 'POST', body: formData });
+        const data = await res.json();
+
+        const temp = document.getElementById('tempLoading');
+        if(temp) temp.remove();
+
+        if(data.files && data.files.length > 0) {
+            const processedNewFiles = data.files.map(f => ({
+                ...f,
+                current_w: f.orig_w_inch,
+                current_h: f.orig_h_inch,
+                quantity: 1
+            }));
+
+            uploadedFilesCache = uploadedFilesCache.concat(processedNewFiles);
+            renderConfigurations();
+            document.getElementById('generateBtn').disabled = false;
+        }
+    } catch (error) {
+        console.error(error);
+        const temp = document.getElementById('tempLoading');
+        if(temp) temp.remove();
+        alert("An error occurred during file upload.");
+    }
+}
+
+function renderConfigurations() {
+    const container = document.getElementById('itemsContainer');
+    container.innerHTML = '';
+
+    if (uploadedFilesCache.length === 0) {
+        container.innerHTML = '<p class="text-muted">No files loaded yet. Please upload files above to configure dimensions.</p>';
+        document.getElementById('generateBtn').disabled = true;
+        return;
+    }
+
+    uploadedFilesCache.forEach((file, index) => {
+        const div = document.createElement('div');
+        div.className = "p-3 mb-3 border rounded bg-white row align-items-center g-3";
+        div.id = `card_item_${index}`;
+
+        const wVal = file.current_w || file.orig_w_inch;
+        const hVal = file.current_h || file.orig_h_inch;
+        const qtyVal = file.quantity || 1;
+        const aspectRatio = file.orig_h_inch / file.orig_w_inch;
+
+        div.innerHTML = `
+            <div class="col-12 col-md-4">
+                <div class="d-flex align-items-center">
+                    <div style="min-width: 65px; width: 65px; text-align: left;">
+                        <img src="/uploads/${file.filename}" class="img-thumbnail-preview" alt="preview">
+                    </div>
+                    <div class="ms-3" style="overflow: hidden; flex-grow: 1;">
+                        <span class="d-block text-truncate fw-bold" title="${file.display_name}" style="font-size: 1.05rem; max-width: 100%;">
+                            ${file.display_name}
+                        </span>
+                        <small class="text-muted d-block my-0.5">Original: ${file.orig_w_inch} x ${file.orig_h_inch} in</small>
+                        <div class="d-flex flex-wrap gap-1 mt-1">
+                            ${file.is_transparent ?
+                                '<span class="badge badge-transparent" style="font-size: 0.72rem; padding: 4px 6px;">✅ Transparent</span>' :
+                                '<span class="badge badge-opaque" style="font-size: 0.72rem; padding: 4px 6px;">⚠️ Background</span>'}
+                            <span id="quality_badge_${index}" class="badge text-white" style="font-size: 0.72rem; padding: 4px 6px;">Calculating...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-6 col-md-2">
+                <label class="form-label small fw-bold mb-1 text-secondary">Width (in)</label>
+                <input type="number" step="0.01" class="form-control form-control-sm fw-bold text-primary" id="width_${index}" value="${wVal.toFixed(2)}" oninput="syncDimensions(${index}, 'width', ${aspectRatio}, ${file.orig_w_px}, ${file.orig_h_px})">
+            </div>
+
+            <div class="col-6 col-md-2">
+                <label class="form-label small fw-bold mb-1 text-secondary">Height (in)</label>
+                <input type="number" step="0.01" class="form-control form-control-sm fw-bold text-success" id="height_${index}" value="${hVal.toFixed(2)}" oninput="syncDimensions(${index}, 'height', ${aspectRatio}, ${file.orig_w_px}, ${file.orig_h_px})">
+            </div>
+
+            <div class="col-6 col-md-2">
+                <label class="form-label small fw-bold mb-1 text-secondary">Qty</label>
+                <input type="number" class="form-control form-control-sm text-center fw-bold" id="qty_${index}" value="${qtyVal}" min="1">
+            </div>
+
+            <div class="col-6 col-md-2 text-end">
+                <label class="form-label small fw-bold mb-1 text-secondary d-none d-md-block" style="visibility: hidden;">Action</label>
+                <button type="button" class="btn-delete btn-sm w-100 py-1.5" onclick="deleteItem(${index})">✕ Delete</button>
+            </div>
+        `;
+        container.appendChild(div);
+
+        updateQualityBadge(index, wVal, hVal, file.orig_w_px, file.orig_h_px);
+    });
+}
+
+function updateQualityBadge(index, currentW, currentH, origW, origH) {
+    const badge = document.getElementById(`quality_badge_${index}`);
+    if (!badge) return;
+
+    if (currentW <= 0 || currentH <= 0) {
+        badge.className = "badge bg-dark text-white";
+        badge.innerText = "❌ Invalid Size";
+        return;
+    }
+
+    const effectiveDpi = Math.min(origW / currentW, origH / currentH);
+    const sharpness = uploadedFilesCache[index].sharpness || 500;
+
+    if (sharpness < 80) {
+        badge.style.backgroundColor = "#d90429";
+        badge.innerText = `🔴 Fake DPI / Blurry (${Math.round(effectiveDpi)} DPI)`;
+        return;
+    }
+
+    if (effectiveDpi >= 250) {
+        if (sharpness < 150) {
+            badge.style.backgroundColor = "#ffb703";
+            badge.innerText = `🟡 Upscaled/Soft (${Math.round(effectiveDpi)} DPI)`;
+        } else {
+            badge.style.backgroundColor = "#2a9d8f";
+            badge.innerText = `🟢 Perfect (${Math.round(effectiveDpi)} DPI)`;
+        }
+    } else if (effectiveDpi >= 140) {
+        badge.style.backgroundColor = "#f4a261";
+        badge.innerText = `🟡 Moderate (${Math.round(effectiveDpi)} DPI)`;
+    } else {
+        badge.style.backgroundColor = "#e63946";
+        badge.innerText = `🔴 Low Quality (${Math.round(effectiveDpi)} DPI)`;
+    }
+}
+
+function syncDimensions(index, changedSide, aspectRatio, origW, origH) {
+    const widthEl = document.getElementById(`width_${index}`);
+    const heightEl = document.getElementById(`height_${index}`);
+
+    if (!widthEl || !heightEl) return;
+
+    let currentW = parseFloat(widthEl.value) || 0;
+    let currentH = parseFloat(heightEl.value) || 0;
+
+    if (changedSide === 'width') {
+        if (currentW > 0) {
+            currentH = currentW * aspectRatio;
+            heightEl.value = currentH.toFixed(2);
+        }
+    } else {
+        if (currentH > 0) {
+            currentW = currentH / aspectRatio;
+            widthEl.value = currentW.toFixed(2);
+        }
+    }
+
+    uploadedFilesCache[index].current_w = currentW;
+    uploadedFilesCache[index].current_h = currentH;
+
+    updateQualityBadge(index, currentW, currentH, origW, origH);
+}
+
+// --- UPDATED DETACHED CODES IN JAVASCRIPT ---
+async function deleteItem(index) {
+    const targetFile = uploadedFilesCache[index];
+
+    if (targetFile && targetFile.filename) {
+        try {
+            // Tell the backend to drop this file from the server storage instantly
+            await fetch('/delete-file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename: targetFile.filename })
+            });
+        } catch (error) {
+            console.error("Failed to delete file from server:", error);
+        }
+    }
+
+    // Remove from frontend cache and refresh UI
+    uploadedFilesCache.splice(index, 1);
+    renderConfigurations();
+}
+
+document.getElementById('generateBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('generateBtn');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⌛ Optimizing Layout...';
+
+    const configs = uploadedFilesCache.map((file, index) => {
+        const widthEl = document.getElementById(`width_${index}`);
+        const qtyEl = document.getElementById(`qty_${index}`);
+
+        return {
+            filename: file.filename,
+            dimension_type: 'en',
+            target_value: widthEl ? widthEl.value : (file.current_w || file.orig_w_inch),
+            quantity: qtyEl ? qtyEl.value : (file.quantity || 1)
+        };
+    });
+
+    const payload = {
+        sheet_width: document.getElementById('sheetWidth').value,
+        max_sheet_height: document.getElementById('maxHeight').value,
+        configs: configs
+    };
+
+    try {
+        const res = await fetch('/generate-gangsheet', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        // --- FIND THIS PART INSIDE THE GENERATE BTN EVENT LISTENER ---
+    const data = await res.json();
+    if(data.download_url) {
+    document.getElementById('resultsCard').classList.remove('d-none');
+
+    if (data.is_zip) {
+        document.getElementById('outInch').innerText = `${data.width_inch} x ${data.height_inch} in (${data.total_pages} Pages)`;
+
+        const dlBtn = document.getElementById('downloadBtn');
+        dlBtn.href = data.download_url;
+        dlBtn.innerHTML = `📦 Download ZIP Pack (${data.total_pages} Files Inside)`;
+    } else {
+        document.getElementById('outInch').innerText = `${data.width_inch} x ${data.height_inch} in`;
+        document.getElementById('downloadBtn').href = data.download_url;
+    }
+
+    document.getElementById('resultsCard').scrollIntoView({ behavior: 'smooth' });
+}
+    } catch (error) {
+        console.error(error);
+        alert("An error occurred while generating the gangsheet.");
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+});
+</script>
+</body>
+</html>
