@@ -190,7 +190,7 @@ Defaults live in `config.py`; sheet width and max length are also set per-reques
 - [ ] Docker image for one-command deployment
 - [ ] Per-design "no rotation" lock (for orientation-sensitive prints)
 - [ ] Adjustable border/margin from the UI
-- [ ] JPG and other input formats
+- [ ] PNG and other input formats
 - [ ] Custom DPI selection
 - [ ] True no-fit-polygon nesting for even tighter irregular packing
 
