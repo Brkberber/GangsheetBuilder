@@ -17,6 +17,7 @@ from config import (
 from cleanup import clear_directory, start_cleanup_worker
 from image_utils import process_upload, apply_cmyk_correction
 from packing import pack_images
+from nesting import pack_shapes
 
 # ── App setup ────────────────────────────────────────────────
 app = Flask(__name__)
@@ -122,6 +123,7 @@ def generate_gangsheet():
 
         try:
             with Image.open(filepath) as img:
+                img = img.convert("RGBA")
                 orig_w, orig_h = img.size
                 aspect = orig_h / orig_w
                 target_w_px = int(target_w_inch * DPI)
@@ -131,8 +133,8 @@ def generate_gangsheet():
                 for _ in range(quantity):
                     images_to_pack.append({
                         'image': resized.copy(),
-                        'w': target_w_px + padding_px * 2,
-                        'h': target_h_px + padding_px * 2,
+                        'w': target_w_px,
+                        'h': target_h_px,
                     })
         except Exception as e:
             print(f"[GENERATE ERROR] {item['filename']}: {e}")
@@ -140,11 +142,33 @@ def generate_gangsheet():
     if not images_to_pack:
         return jsonify({'error': 'No valid images to layout'}), 400
 
-    # ── Run bin-packing ───────────────────────────────────────
-    pages, unpacked = pack_images(images_to_pack, gang_width_px, max_height_px)
+    # ── Run both packers, keep the tighter (shorter) layout ───
+    #   * pack_images: rectangular MaxRects (bounding-box packing)
+    #   * pack_shapes: silhouette nesting (lets T / round designs
+    #     interlock, e.g. two flipped Ts side by side on a 22" roll)
+    def _layout_height(pages):
+        if not pages:
+            return float('inf')
+        return sum(max(p['y'] + p['ch'] for p in page) for page in pages)
 
-    if not pages:
+    rect_pages, rect_un = pack_images(
+        images_to_pack, gang_width_px, max_height_px, padding_px)
+    shape_pages, shape_un = pack_shapes(
+        images_to_pack, gang_width_px, max_height_px, padding_px)
+
+    candidates = []
+    if rect_pages:
+        candidates.append((len(rect_un), _layout_height(rect_pages),
+                           rect_pages, rect_un))
+    if shape_pages:
+        candidates.append((len(shape_un), _layout_height(shape_pages),
+                           shape_pages, shape_un))
+
+    if not candidates:
         return jsonify({'error': 'A design is larger than the maximum sheet size.'}), 400
+
+    candidates.sort(key=lambda c: (c[0], c[1]))
+    _un_count, _h, pages, unpacked = candidates[0]
 
     # ── Render pages and zip ──────────────────────────────────
     zip_id = uuid.uuid4().hex
@@ -155,12 +179,15 @@ def generate_gangsheet():
     generated_files = []
 
     for idx, page in enumerate(pages):
-        page_height_px = max(p['y'] + p['h'] for p in page)
+        # Add a bottom border so the last row keeps its 0.2" margin.
+        page_height_px = max(p['y'] + p['ch'] for p in page) + padding_px
         total_height_inch += page_height_px / DPI
 
         canvas = Image.new("RGBA", (gang_width_px, page_height_px), (0, 0, 0, 0))
         for p in page:
-            canvas.paste(p['image'], (p['x'] + padding_px, p['y'] + padding_px))
+            # Paste using the image's own alpha as the mask so nested /
+            # interlocking shapes don't erase each other's pixels.
+            canvas.paste(p['image'], (p['x'], p['y']), p['image'])
 
         final_canvas = apply_cmyk_correction(canvas)
 
@@ -192,4 +219,4 @@ def download_file(filename):
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5002)
+    app.run(debug=True, port=5006)

@@ -4,7 +4,7 @@
 
 # Print settings
 DPI = 300
-PADDING_INCH = 0.25
+PADDING_INCH = 0.2   # border on every side of each design (inches)
 
 # Default sheet dimensions (inches)
 DEFAULT_SHEET_WIDTH_INCH = 22
